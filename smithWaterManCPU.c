@@ -29,14 +29,14 @@ int MAX3(int a, int b, int c)
 	}
 }
 
-int MAXn(int * array, int strandSize, int Ge)
+int MAXn(int * array, int length, int Ge)
 {
 	int max = 0;
 	int value;
 	int i;
-	for (i = 1; i < strandSize; ++i)
+	for (i = 1; i < length; ++i)
 	{
-		value = (array[strandSize - i] - i * Ge);
+		value = (array[length - i] - i * Ge);
 		if(value > max)
 			max = value; 
 	}
@@ -55,7 +55,7 @@ int main(int argc, char const *argv[])
 	char *dna = NULL;
 	char *dnaCompare = NULL;
 
-	int Gs,Ge,gapInit,S;
+	int Gs = 0,Ge = 0,gapInit,S;
 
 	FILE *fp = NULL;
 
@@ -77,7 +77,7 @@ int main(int argc, char const *argv[])
 	E_ = (int **) calloc((strandSize + 1), sizeof(int *));
 	matrixH = (int **) calloc((strandSize + 1 ), sizeof(int *));
 	
-	for (i = 0; i < strandSize; ++i)
+	for (i = 0; i < strandSize + 1; ++i)
 	{
 		F[i] = (int*) calloc(strandSize + 1, sizeof(int));
 		H_[i] = (int*) calloc(strandSize + 1, sizeof(int));
@@ -138,15 +138,26 @@ int main(int argc, char const *argv[])
 					S = 5;
 				else
 					S = -3;
+				Gs = 8;
+				Ge = 1;
 			}
+			printf("dna:%c dnaCompare:%c Gs:%d Ge:%d S:%d\n",dna[k],dnaCompare[l],Gs,Ge,S);
 
 			F[i][j] = MAX2(F[i - 1][j], matrixH[i - 1][j] - Gs) - Ge;
 			H_[i][j] = MAX3(matrixH[i - 1][j - 1] + S, F[i][j],0);
-			E_[i][j] = MAXn(H_[i], strandSize, Ge);
+			E_[i][j] = MAXn(H_[i], j, Ge);
 			matrixH[i][j] = MAX2(H_[i][j], E_[i][j] - Gs);
+			printf("-->i:%d j:%d F:%d H_:%d E_:%d matrixH:%d \n",i,j,F[i][j],H_[i][j],E_[i][j],matrixH[i][j]);
 		}
 	}
-
+	for (i = 0; i < strandSize + 1; ++i)
+	{
+		for (j = 0; j < strandSize + 1; ++j)
+		{
+			printf("%d ",matrixH[i][j]);
+		}
+		printf("\n");
+	}
 
 
 	return 0;
