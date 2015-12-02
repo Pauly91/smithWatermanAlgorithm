@@ -2,6 +2,17 @@
 #include <stdlib.h>
 
 
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
+
+
 int MAX2(int a, int b)
 {
 	if(a >= b)
@@ -50,12 +61,17 @@ int main(int argc, char const *argv[])
 	int **F = NULL;
 	int **H_ = NULL;
 	int **E_ = NULL;
-	int strandSize;
+	int dnaStrandSize;
+	int dnaTestStrandSize;
 	int fscanfReturn;
 	char *dna = NULL;
 	char *dnaCompare = NULL;
 
-	int Gs = 0,Ge = 0,gapInit,S;
+	int Gs = 8,Ge = 0,S;
+
+    float time;
+    cudaEvent_t start, stop;
+
 
 	FILE *fp = NULL;
 
@@ -64,101 +80,102 @@ int main(int argc, char const *argv[])
 		printf("%s is not open !! \n",argv[1]);
 	}
 
-	fscanfReturn = fscanf(fp,"%d",&strandSize);
+	fscanfReturn = fscanf(fp,"%d",&dnaStrandSize);
 	if(fscanfReturn < 0)
 		printf("Scanning of Value Failed\n");
-	printf("%d \n",strandSize);
+	printf("%d \n",dnaStrandSize);
 	
-	dna = (char *) malloc(strandSize * sizeof(char));
-	dnaCompare = (char *) malloc(strandSize * sizeof(char));	
 
-	F = (int **) calloc((strandSize + 1), sizeof(int *));
-	H_ = (int **) calloc((strandSize + 1), sizeof(int *));
-	E_ = (int **) calloc((strandSize + 1), sizeof(int *));
-	matrixH = (int **) calloc((strandSize + 1 ), sizeof(int *));
+	fscanfReturn = fscanf(fp,"%d",&dnaTestStrandSize);
+	if(fscanfReturn < 0)
+		printf("Scanning of Value Failed\n");
+	printf("%d \n",dnaTestStrandSize);	
+
+	dna = (char *) malloc(dnaStrandSize * sizeof(char));
+	dnaCompare = (char *) malloc(dnaTestStrandSize * sizeof(char));	
+
+	F = (int **) calloc((dnaTestStrandSize + 1), sizeof(int *));
+	H_ = (int **) calloc((dnaTestStrandSize + 1), sizeof(int *));
+	E_ = (int **) calloc((dnaTestStrandSize + 1), sizeof(int *));
+	matrixH = (int **) calloc((dnaTestStrandSize + 1 ), sizeof(int *));
 	
-	for (i = 0; i < strandSize + 1; ++i)
+	for (i = 0; i < dnaTestStrandSize + 1; ++i)
 	{
-		F[i] = (int*) calloc(strandSize + 1, sizeof(int));
-		H_[i] = (int*) calloc(strandSize + 1, sizeof(int));
-		E_[i] = (int*) calloc(strandSize + 1, sizeof(int));
-		matrixH[i] = (int*) calloc(strandSize + 1, sizeof(int));
+		F[i] = (int*) calloc(dnaStrandSize + 1, sizeof(int));
+		H_[i] = (int*) calloc(dnaStrandSize + 1, sizeof(int));
+		E_[i] = (int*) calloc(dnaStrandSize + 1, sizeof(int));
+		matrixH[i] = (int*) calloc(dnaStrandSize + 1, sizeof(int));
 
 	}
 
 
-	for (i = 0; i < strandSize; ++i)
+	for (i = 0; i < dnaStrandSize; ++i)
 	{
 		fscanfReturn = fscanf(fp," %c ",&dna[i]);
 		if(fscanfReturn < 0)
 			printf("Scanning of Value Failed\n");
 	}
 
-	for (i = 0; i < strandSize; ++i)
+	for (i = 0; i < dnaTestStrandSize; ++i)
 	{
 		fscanfReturn = fscanf(fp," %c ",&dnaCompare[i]);
 		if(fscanfReturn < 0)
 			printf("Scanning of Value Failed\n");	
 	}
 	fclose(fp);
+    gpuErrchk( cudaEventCreate(&start) );
+    gpuErrchk( cudaEventCreate(&stop) );
+    gpuErrchk( cudaEventRecord(start, 0) );
 
 
 
-	for (i = 1 , l = 0; i < strandSize; ++i, ++l) //  startinf from 1 to account for initial zero matrix
-	{// l for compare dna count
-		for (j = 1, k = 0, gapInit = 1; j < strandSize; ++j, ++k)
+	for (i = 1 , l = 0; i < dnaTestStrandSize + 1; ++i, ++l)
+	{
+		for (j = 1, k = 0; j < dnaStrandSize + 1; ++j, ++k)
 		{
-			// k for dna count
-			if(dna[k] == ' ' && dna[j - 1] != dnaCompare[l])// since i and j are starting from 1
-			{	
-				if(gapInit == 1) // first gap in the entire sequence
-				{
-					Gs = 8;
-					Ge = 0;
-					gapInit = 0;
-				}
-				else
-				{
-					if(dna[k - 1] != ' ') // gap Starting
-					{
-						Gs = 8;
-						Ge = 0;
-					}
-					else // extension
-					{
-						Gs = 0;
-						Ge = 1;	
-					}
-				}
-				S = -3;
-			}
+			if(dna[k] == dnaCompare[l])
+				S = 5;
 			else
-			{
-				if(dna[k] == dnaCompare[l])
-					S = 5;
-				else
-					S = -3;
-				Gs = 8;
-				Ge = 1;
-			}
-			printf("dna:%c dnaCompare:%c Gs:%d Ge:%d S:%d\n",dna[k],dnaCompare[l],Gs,Ge,S);
-
+				S = -3;
+			Gs = 8;
+			Ge = 1;
 			F[i][j] = MAX2(F[i - 1][j], matrixH[i - 1][j] - Gs) - Ge;
 			H_[i][j] = MAX3(matrixH[i - 1][j - 1] + S, F[i][j],0);
 			E_[i][j] = MAXn(H_[i], j, Ge);
 			matrixH[i][j] = MAX2(H_[i][j], E_[i][j] - Gs);
-			printf("-->i:%d j:%d F:%d H_:%d E_:%d matrixH:%d \n",i,j,F[i][j],H_[i][j],E_[i][j],matrixH[i][j]);
 		}
-	}
-	for (i = 0; i < strandSize + 1; ++i)
-	{
-		for (j = 0; j < strandSize + 1; ++j)
-		{
-			printf("%d ",matrixH[i][j]);
-		}
-		printf("\n");
 	}
 
+
+    gpuErrchk( cudaEventRecord(stop, 0) );
+    gpuErrchk( cudaEventSynchronize(stop) );
+    gpuErrchk( cudaEventElapsedTime(&time, start, stop) );
+
+	if(!(fp = fopen("CPUdata","w")))
+	{
+		printf("%s is not open !! \n","CPUdata");
+		return -1;
+	}	
+	for (i = 0; i < dnaTestStrandSize + 1; ++i)
+	{
+		for (j = 0; j < dnaStrandSize + 1; ++j)
+		{
+			fprintf(fp, "%d ",matrixH[i][j]);
+		}
+		fprintf(fp,"\n");
+	}
+	fprintf(fp,"\n");
+	printf("\n");
+	fclose(fp);
+	printf("\n*** CPU ***\n");
+    printf("Time to generate:  %3.1f ms \n", time);
+    if((fp = fopen("timingInformation","a+")) == NULL)
+    {
+        printf("File opening has failed\n");
+        return -1;
+    }
+    fprintf(fp, "%s: DNA Sequence:%d Test DNA Sequence:%d Time:%f\n","CPU",dnaStrandSize,dnaTestStrandSize,time);
+    fclose(fp);
 
 	return 0;
 }

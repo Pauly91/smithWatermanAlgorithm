@@ -41,14 +41,14 @@ __device__ int MAX3(int a, int b, int c)
 	}
 }
 
-__device__ int MAXn(int * array, int thread_2D_pos_y, int thread_2D_pos_x, int dnaStrandSize, int length, int Ge)
+__device__ int MAXn(int * array, int row, int dnaStrandSize, int length, int Ge)
 {
 	int max = 0;
 	int value;
 	int i;
 	for (i = 1; i < length; ++i)
 	{
-		value = (array[thread_2D_pos_y * dnaStrandSize + length - i] - i * Ge);
+		value = (array[row * dnaStrandSize + length - i] - i * Ge);
 		if(value > max)
 			max = value; 
 	}
@@ -56,43 +56,33 @@ __device__ int MAXn(int * array, int thread_2D_pos_y, int thread_2D_pos_x, int d
 }
 
 
-__global__ void alignmentFinder(char *dna, char *dnaCompare, int *E_, int *H_,int *F, int *matrixH, int dnaTestStrandSize, int dnaStrandSize)
+__global__ void alignmentFinder(char *dna, char *dnaCompare, int *E_, int *H_,int *F, int *matrixH, int dnaStrandSize, int row)
 {
 
-// need to work on this
-
-
-    const int2 thread_2D_pos = make_int2( blockIdx.x * blockDim.x + threadIdx.x,
-                                            blockIdx.y * blockDim.y + threadIdx.y);
-
-    const int thread_1D_pos = thread_2D_pos.y * dnaStrandSize + thread_2D_pos.x;
- 	
-
-	int i;
+    const int thread_1D_pos = blockIdx.x * blockDim.x + threadIdx.x;
+ 
 	int Gs = 8;
 	int Ge = 1;
 	int S;
 
-	for (i = 0; i < dnaStrandSize; ++i) //  startinf from 1 to account for initial zero matrix
-	{// l for compare dna count
-
-		if(dna[i] == dnaCompare[thread_2D_pos.x])
+	if(thread_1D_pos  != 0)
+	{
+		if(dna[thread_1D_pos - 1] == dnaCompare[row - 1])
 			S = 5;
 		else
 			S = -3;
+		F[row * (dnaStrandSize + 1) + thread_1D_pos] = MAX2(F[(row - 1) * (dnaStrandSize + 1) + thread_1D_pos], matrixH[(row - 1) * (dnaStrandSize + 1) + thread_1D_pos] - Gs) - Ge;	
+		H_[row * (dnaStrandSize + 1) + thread_1D_pos] = MAX3(matrixH[(row - 1) * (dnaStrandSize + 1) + thread_1D_pos - 1] + S, F[row * (dnaStrandSize + 1) + thread_1D_pos],0);
+		E_[row * (dnaStrandSize + 1) + thread_1D_pos] = MAXn(H_,row, (dnaStrandSize + 1),thread_1D_pos, Ge);  
+		matrixH[row * (dnaStrandSize + 1) + thread_1D_pos] = MAX2(H_[row * (dnaStrandSize + 1) + thread_1D_pos], E_[row * (dnaStrandSize + 1) + thread_1D_pos] - Gs);			
+	}
 
-		//printf("dna:%c dnaCompare:%c Gs:%d Ge:%d S:%d\n",dna[k],dnaCompare[l],Gs,Ge,S);
 
-		F[thread_1D_pos] = MAX2(F[(thread_2D_pos.y - 1) * dnaStrandSize + thread_2D_pos.x], matrixH[(thread_2D_pos.y - 1) * dnaStrandSize + thread_2D_pos.x] - Gs) - Ge;
-		H_[thread_1D_pos] = MAX3(matrixH[(thread_2D_pos.y - 1) * dnaStrandSize + thread_2D_pos.x -1 ] + S, F[thread_2D_pos.y * dnaStrandSize + thread_2D_pos.x],0);
-		E_[thread_1D_pos] = MAXn(H_,thread_2D_pos.y, thread_2D_pos.x, dnaStrandSize, i, Ge);
-		matrixH[thread_1D_pos] = MAX2(H_[thread_1D_pos], E_[thread_1D_pos] - Gs);
-	}			//printf("-->i:%d j:%d F:%d H_:%d E_:%d matrixH:%d \n",i,j,F[i][j],H_[i][j],E_[i][j],matrixH[i][j]);	
 }
 
 int main(int argc, char const *argv[])
 {
-	int i,j,k,l;
+	int i,j;
 	int *matrixH = NULL;
 	int *F = NULL;
 	int *H_ = NULL;
@@ -106,6 +96,8 @@ int main(int argc, char const *argv[])
 	int *d_F = NULL;
 	int *d_H_ = NULL;
 	int *d_E_ = NULL;
+
+	int blockSize;
 	
 
 	char *dna = NULL;
@@ -113,6 +105,10 @@ int main(int argc, char const *argv[])
 
 	char *d_dna = NULL;
 	char *d_dnaCompare = NULL;
+
+    float time;
+    cudaEvent_t start, stop;
+
 
 
 
@@ -157,8 +153,11 @@ int main(int argc, char const *argv[])
 	}
 	fclose(fp);
 
+    gpuErrchk( cudaEventCreate(&start) );
+    gpuErrchk( cudaEventCreate(&stop) );
+    gpuErrchk( cudaEventRecord(start, 0) );
 
-	gpuErrchk(cudaMalloc((void**)&d_E_, (dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int)));
+	gpuErrchk(cudaMalloc((void**)&d_E_, (dnaStrandSize + 1)  * (dnaTestStrandSize + 1) * sizeof(int)));
 	gpuErrchk(cudaMalloc((void**)&d_H_ ,(dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int)));
 	gpuErrchk(cudaMalloc((void**)&d_F,(dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int)));
 	gpuErrchk(cudaMalloc((void**)&d_matrixH,(dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int)));
@@ -173,26 +172,57 @@ int main(int argc, char const *argv[])
 	gpuErrchk(cudaMalloc((void**)&d_dnaCompare, dnaTestStrandSize * sizeof(char)));
 
 
-	gpuErrchk(cudaMemcpy(dna, d_dna, dnaTestStrandSize * sizeof(char), cudaMemcpyHostToDevice));
-	gpuErrchk(cudaMemcpy(dnaCompare, d_dnaCompare, dnaTestStrandSize * sizeof(char), cudaMemcpyHostToDevice));
+	gpuErrchk(cudaMemcpy(d_dna, dna, dnaStrandSize * sizeof(char), cudaMemcpyHostToDevice));
+	gpuErrchk(cudaMemcpy(d_dnaCompare, dnaCompare, dnaTestStrandSize * sizeof(char), cudaMemcpyHostToDevice));
 
-	dim3 grid(dnaTestStrandSize/idealBlockSize, dnaStrandSize/idealBlockSize);
-	dim3 block(idealBlockSize, idealBlockSize);
+	if((dnaStrandSize + 1) < idealBlockSize)
+		blockSize = 1;
+	else
+		blockSize = idealBlockSize;
 
-	alignmentFinder<<<grid, block>>>(d_dna, d_dnaCompare, d_E_, d_H_, d_F, d_matrixH, dnaTestStrandSize, dnaStrandSize);
+	dim3 grid((dnaStrandSize + 1)/blockSize);
+	dim3 block(blockSize);
 
+	for (i = 1; i < dnaTestStrandSize + 1; ++i)
+	{
+		alignmentFinder<<<grid, block>>>(d_dna, d_dnaCompare, d_E_, d_H_, d_F, d_matrixH, dnaStrandSize,i);
+	}
 	gpuErrchk(cudaMemcpy(matrixH, d_matrixH, (dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int) , cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(E_, d_E_, (dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int) , cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(F, d_F, (dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int) , cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(H_, d_H_, (dnaStrandSize + 1) * (dnaTestStrandSize + 1) * sizeof(int) , cudaMemcpyDeviceToHost));
 
 
+    gpuErrchk( cudaEventRecord(stop, 0) );
+    gpuErrchk( cudaEventSynchronize(stop) );
+    gpuErrchk( cudaEventElapsedTime(&time, start, stop) );
+
+
+	if(!(fp = fopen("GPUdata","w")))
+	{
+		printf("%s is not open !! \n","GPUdata");
+		return -1;
+	}
 	for (i = 0; i < dnaTestStrandSize + 1; ++i)
 	{
 		for (j = 0; j < dnaStrandSize + 1; ++j)
 		{
-			printf("%d ",matrixH[i * dnaStrandSize + j]);
+			fprintf(fp, "%d ",matrixH[i * (dnaStrandSize + 1) + j]);
 		}
-		printf("\n");
+		fprintf(fp,"\n");
 	}
-
+	printf("\n");
+	fprintf(fp,"\n");
+	fclose(fp);
+	printf("\n*** GPU ***\n");
+    printf("Time to generate:  %3.1f ms \n", time);
+    if((fp = fopen("timingInformation","a+")) == NULL)
+    {
+        printf("File opening has failed\n");
+        return -1;
+    }
+    fprintf(fp, "%s: DNA Sequence:%d Test DNA Sequence:%d Time:%f\n","GPU",dnaStrandSize,dnaTestStrandSize,time);
+    fclose(fp);
 
 	return 0;
 }

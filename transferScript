@@ -5,6 +5,7 @@ sshpass -p thanks@123 scp smithWaterManGPU.c administrator@192.168.4.100:/home/a
 sshpass -p thanks@123 scp smithWaterManGPU.cu administrator@192.168.4.100:/home/administrator/abel/smithWaterMan
 sshpass -p thanks@123 scp smithWaterManCPU.cu administrator@192.168.4.100:/home/administrator/abel/smithWaterMan
 sshpass -p thanks@123 scp smithWaterManCPU.c administrator@192.168.4.100:/home/administrator/abel/smithWaterMan
+sshpass -p thanks@123 scp dnaPatternGenerator.py administrator@192.168.4.100:/home/administrator/abel/smithWaterMan
 
 
 
